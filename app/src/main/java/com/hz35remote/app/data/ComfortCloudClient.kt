@@ -1,21 +1,28 @@
 package com.hz35remote.app.data
 
+import android.os.SystemClock
 import android.util.Base64
-import com.hz35remote.app.FanSpeed
-import com.hz35remote.app.OperatingMode
+import android.util.Log
 import com.hz35remote.app.AirflowAxis
 import com.hz35remote.app.AirflowMode
+import com.hz35remote.app.FanSpeed
+import com.hz35remote.app.OperatingMode
 import com.hz35remote.app.airflowPositionFromApi
 import com.hz35remote.app.security.SecureSessionStore
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URI
-import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -24,15 +31,42 @@ import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.TimeUnit
 
 class ComfortCloudClient(
     private val store: SecureSessionStore,
 ) {
+    private val operationMutex = Mutex()
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .retryOnConnectionFailure(true)
+        .build()
     private var session: ComfortCloudSession? = store.loadSession()
-    private var selectedDevice: ComfortCloudDevice? = null
+    private var selectedDevice: ComfortCloudDevice? = if (session != null) {
+        store.loadSelectedDevice()
+    } else {
+        null
+    }
 
     val hasStoredSession: Boolean
         get() = session != null
+
+    val cachedSnapshot: ComfortCloudSnapshot?
+        get() {
+            if (session == null) return null
+            val device = selectedDevice ?: return null
+            val responseBody = store.loadCachedStatus() ?: return null
+            return runCatching {
+                JSONObject(responseBody).toSnapshot(
+                    device = device,
+                    confirmedAtEpochMillis = store.loadCachedStatusConfirmedAt(),
+                )
+            }.getOrNull()
+        }
 
     fun createAuthorizationUrl(): String {
         val codeVerifier = randomString(43)
@@ -79,16 +113,21 @@ class ComfortCloudClient(
         val provisional = tokenResponse.toSession(appVersion = appVersion, clientId = "")
         val clientId = retrieveClientId(provisional)
         session = provisional.copy(clientId = clientId).also(store::saveSession)
+        store.clearCachedDeviceState()
         selectedDevice = null
         return refreshSnapshot()
     }
 
-    suspend fun refreshSnapshot(): ComfortCloudSnapshot {
+    suspend fun refreshSnapshot(): ComfortCloudSnapshot = operationMutex.withLock {
+        refreshSnapshotUnlocked()
+    }
+
+    private suspend fun refreshSnapshotUnlocked(): ComfortCloudSnapshot {
         val device = selectedDevice ?: discoverDevice().also { selectedDevice = it }
         return getSnapshot(device)
     }
 
-    suspend fun sendControl(parameters: Map<String, Number>): ComfortCloudSnapshot {
+    suspend fun sendControl(parameters: Map<String, Number>): ComfortCloudSnapshot = operationMutex.withLock {
         val device = selectedDevice ?: discoverDevice().also { selectedDevice = it }
         val jsonParameters = JSONObject()
         parameters.forEach { (key, value) -> jsonParameters.put(key, value) }
@@ -103,7 +142,7 @@ class ComfortCloudClient(
         return getSnapshot(device)
     }
 
-    suspend fun disconnect() {
+    suspend fun disconnect() = operationMutex.withLock {
         runCatching {
             authorizedRequest(
                 method = "POST",
@@ -149,10 +188,10 @@ class ComfortCloudClient(
         if (devices.isEmpty()) {
             throw IllegalStateException("No compatible air conditioner was found on this account.")
         }
-        return devices.firstOrNull { device ->
+        return (devices.firstOrNull { device ->
             device.model.contains("HZ35", ignoreCase = true) ||
                 device.name.contains("HZ35", ignoreCase = true)
-        } ?: devices.first()
+        } ?: devices.first()).also(store::saveSelectedDevice)
     }
 
     private suspend fun getSnapshot(device: ComfortCloudDevice): ComfortCloudSnapshot {
@@ -165,6 +204,16 @@ class ComfortCloudClient(
         } catch (_: ComfortCloudException) {
             authorizedRequest("GET", "$ACC_BASE/deviceStatus/now/$preparedGuid")
         }
+        val confirmedAtEpochMillis = System.currentTimeMillis()
+        store.saveCachedStatus(response.toString(), confirmedAtEpochMillis)
+        return response.toSnapshot(device, confirmedAtEpochMillis)
+    }
+
+    private fun JSONObject.toSnapshot(
+        device: ComfortCloudDevice,
+        confirmedAtEpochMillis: Long?,
+    ): ComfortCloudSnapshot {
+        val response = this
         val parameters = response.optJSONObject("parameters")
             ?: throw IllegalStateException("Comfort Cloud returned no device status.")
         val isPoweredOn = parameters.optInt("operate", 0) == 1
@@ -214,7 +263,7 @@ class ComfortCloudClient(
             isMaintenanceHeating = isPoweredOn &&
                 operationModeValue == OperatingMode.HEAT.apiValue &&
                 targetTemperature in MAINTENANCE_TEMPERATURE_RANGE,
-            timestampEpochMillis = response.optLongOrNull("timestamp"),
+            timestampEpochMillis = confirmedAtEpochMillis ?: response.optLongOrNull("timestamp"),
         )
     }
 
@@ -369,28 +418,60 @@ class ComfortCloudClient(
         url: String,
         headers: Map<String, String>,
         body: String?,
-    ): HttpResponse = withContext(Dispatchers.IO) {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        try {
-            connection.requestMethod = method
-            connection.connectTimeout = 20_000
-            connection.readTimeout = 20_000
-            connection.instanceFollowRedirects = false
-            headers.forEach(connection::setRequestProperty)
-            if (body != null) {
-                connection.doOutput = true
-                connection.outputStream.use { output ->
-                    output.write(body.toByteArray(Charsets.UTF_8))
+    ): HttpResponse = suspendCancellableCoroutine { continuation ->
+        val startedAt = SystemClock.elapsedRealtime()
+        val requestBuilder = Request.Builder().url(url)
+        headers.forEach(requestBuilder::header)
+        when (method) {
+            "GET" -> requestBuilder.get()
+            "POST" -> requestBuilder.post(
+                body.orEmpty().toRequestBody(JSON_MEDIA_TYPE),
+            )
+            else -> error("Unsupported HTTP method: $method")
+        }
+        val call = httpClient.newCall(requestBuilder.build())
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, exception: IOException) {
+                logRequestTiming(method, url, startedAt, "failed")
+                if (continuation.isActive) {
+                    continuation.resumeWith(
+                        Result.failure(IOException("Could not reach Comfort Cloud.", exception)),
+                    )
                 }
             }
-            val statusCode = connection.responseCode
-            val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
-            HttpResponse(statusCode, stream?.bufferedReader()?.use { it.readText() }.orEmpty())
-        } catch (exception: IOException) {
-            throw IOException("Could not reach Comfort Cloud.", exception)
-        } finally {
-            connection.disconnect()
-        }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    val result = runCatching {
+                        HttpResponse(it.code, it.body.string())
+                    }
+                    logRequestTiming(method, url, startedAt, it.code.toString())
+                    if (continuation.isActive) continuation.resumeWith(result)
+                }
+            }
+        })
+    }
+
+    private fun logRequestTiming(
+        method: String,
+        url: String,
+        startedAt: Long,
+        result: String,
+    ) {
+        val elapsed = SystemClock.elapsedRealtime() - startedAt
+        Log.d(LOG_TAG, "$method ${endpointLabel(url)} $result in ${elapsed}ms")
+    }
+
+    private fun endpointLabel(url: String): String = when {
+        url.contains("/oauth/token") -> "token"
+        url.contains("/device/group") -> "device-group"
+        url.contains("/deviceStatus/control") -> "control"
+        url.contains("/deviceStatus/") -> "device-status"
+        url.contains("/auth/v2/login") -> "client-login"
+        url.contains("/auth/v2/logout") -> "logout"
+        url.contains("play.google.com") -> "app-version"
+        else -> "request"
     }
 
     private fun ensureSuccessful(response: HttpResponse) {
@@ -481,6 +562,8 @@ class ComfortCloudClient(
         private const val AIRFLOW_SWING_API_VALUE = 5
         private const val API_REQUEST_ATTEMPTS = 3
         private const val RETRY_BASE_DELAY_MILLIS = 400L
+        private const val LOG_TAG = "PanasonixNetwork"
+        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private val MAINTENANCE_TEMPERATURE_RANGE = 8.0..15.0
         private val APP_VERSION_PATTERN = Regex("\\[\\\"(\\d+\\.\\d+\\.\\d+)\\\"\\]")
         private val API_CODE_PATTERN = Regex("\\\"(?:code|errorCode)\\\"\\s*:\\s*\\\"?(\\d+)\\\"?")

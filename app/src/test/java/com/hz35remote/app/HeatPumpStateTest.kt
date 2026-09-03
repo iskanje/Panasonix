@@ -191,4 +191,18 @@ class HeatPumpStateTest {
         assertEquals(false, shouldRetryComfortCloudStatus(401))
         assertEquals(false, shouldRetryComfortCloudStatus(404))
     }
+
+    @Test
+    fun `background refresh runs on cold start and after stale interval`() {
+        assertEquals(true, shouldRefreshAfter(0L, 10_000L))
+        assertEquals(false, shouldRefreshAfter(10_000L, 39_999L))
+        assertEquals(true, shouldRefreshAfter(10_000L, 40_000L))
+    }
+
+    @Test
+    fun `sync indicator distinguishes cached checking online and offline states`() {
+        assertEquals("Checking connection", syncStatusLabel(SyncStatus.CHECKING))
+        assertEquals("● Online", syncStatusLabel(SyncStatus.ONLINE))
+        assertEquals("● Offline", syncStatusLabel(SyncStatus.OFFLINE))
+    }
 }

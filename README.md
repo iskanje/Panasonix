@@ -11,7 +11,8 @@ The interface uses only standard Jetpack Compose Material 3 components and the d
 - Access and refresh tokens encrypted with an Android Keystore key
 - Automatic token refresh
 - Comfort Cloud device discovery, preferring an HZ35 device when present
-- Live and cached status fallback
+- Immediate startup from the last confirmed status with background refresh
+- Cached device discovery and pooled HTTP connections for faster commands
 - Heat, Fan, Cool, Dry, and Auto mode selection
 - Fan speed selection: Auto and levels 1–5
 - Vertical and horizontal airflow: Auto, Swing, and five fixed positions
@@ -35,9 +36,9 @@ The heat pump must already be registered using the official Panasonic Comfort Cl
 
 ## Important limitation
 
-Panasonic does not publish or support this consumer control API. The integration follows the current Comfort Cloud app protocol and can break when Panasonic changes it. Version `0.4.3` is compiled and unit-tested, but live authentication and commands still require end-to-end testing with a real Comfort Cloud account and CS-HZ35ZKE.
+Panasonic does not publish or support this consumer control API. The integration follows the current Comfort Cloud app protocol and can break when Panasonic changes it. Version `0.4.4` is compiled and unit-tested, but live authentication and commands still require end-to-end testing with a real Comfort Cloud account and CS-HZ35ZKE.
 
-If Comfort Cloud returns agreement error `4103`, review the changed terms or privacy notice in Panasonic's official app. Heat Pump Remote will not accept agreements automatically.
+If Comfort Cloud returns agreement error `4103`, review the changed terms or privacy notice in Panasonic's official app. Panasonix will not accept agreements automatically.
 
 ## Branding
 

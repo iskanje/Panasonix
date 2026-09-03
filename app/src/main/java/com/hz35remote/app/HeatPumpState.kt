@@ -90,8 +90,23 @@ enum class ConnectionStatus {
     ERROR,
 }
 
+enum class SyncStatus {
+    UNKNOWN,
+    CHECKING,
+    ONLINE,
+    OFFLINE,
+}
+
+internal fun syncStatusLabel(status: SyncStatus): String = when (status) {
+    SyncStatus.UNKNOWN -> "Connection unknown"
+    SyncStatus.CHECKING -> "Checking connection"
+    SyncStatus.ONLINE -> "● Online"
+    SyncStatus.OFFLINE -> "● Offline"
+}
+
 data class HeatPumpUiState(
     val connectionStatus: ConnectionStatus = ConnectionStatus.SIGNED_OUT,
+    val syncStatus: SyncStatus = SyncStatus.UNKNOWN,
     val deviceName: String = "Living room",
     val model: String = "CS-HZ35ZKE",
     val isPoweredOn: Boolean = false,

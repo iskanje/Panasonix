@@ -10,29 +10,41 @@ import com.hz35remote.app.data.ComfortCloudClient
 import com.hz35remote.app.data.ComfortCloudException
 import com.hz35remote.app.data.ComfortCloudSnapshot
 import com.hz35remote.app.security.SecureSessionStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class HeatPumpViewModel(
     private val client: ComfortCloudClient,
 ) : ViewModel() {
+    private val initialSnapshot = client.cachedSnapshot
+    private var refreshJob: Job? = null
+    private var lastSuccessfulNetworkSyncAt = 0L
+
     var uiState by mutableStateOf(
-        HeatPumpUiState(
-            connectionStatus = if (client.hasStoredSession) {
-                ConnectionStatus.CONNECTING
-            } else {
-                ConnectionStatus.SIGNED_OUT
-            },
-            statusMessage = if (client.hasStoredSession) {
-                "Restoring Comfort Cloud session…"
-            } else {
-                "Not connected"
-            },
-        ),
+        initialSnapshot?.toUiState(
+            previousNormalTargetTemperature = 22.0,
+            message = "Updating status…",
+            syncStatus = SyncStatus.CHECKING,
+        ) ?: HeatPumpUiState(
+                connectionStatus = if (client.hasStoredSession) {
+                    ConnectionStatus.CONNECTING
+                } else {
+                    ConnectionStatus.SIGNED_OUT
+                },
+                statusMessage = if (client.hasStoredSession) {
+                    "Restoring Comfort Cloud session…"
+                } else {
+                    "Not connected"
+                },
+            ),
     )
         private set
 
     init {
-        if (client.hasStoredSession) refresh()
+        if (client.hasStoredSession) {
+            startRefresh(blockUntilConnected = initialSnapshot == null)
+        }
     }
 
     fun beginAuthorization(): String? = runCatching {
@@ -58,7 +70,7 @@ class HeatPumpViewModel(
         )
         viewModelScope.launch {
             runCatching { client.completeAuthorization(code, returnedState) }
-                .onSuccess { snapshot -> showSnapshot(snapshot, "Connected") }
+                .onSuccess { snapshot -> showNetworkSnapshot(snapshot, "Connected") }
                 .onFailure(::showFatalError)
         }
     }
@@ -73,23 +85,42 @@ class HeatPumpViewModel(
     }
 
     fun refresh() {
-        if (uiState.isBusy) return
+        startRefresh(blockUntilConnected = !uiState.isConnected)
+    }
+
+    fun refreshIfStale(nowEpochMillis: Long = System.currentTimeMillis()) {
+        if (!client.hasStoredSession || !shouldRefreshAfter(lastSuccessfulNetworkSyncAt, nowEpochMillis)) {
+            return
+        }
+        startRefresh(blockUntilConnected = !uiState.isConnected)
+    }
+
+    private fun startRefresh(blockUntilConnected: Boolean) {
+        if (refreshJob?.isActive == true || uiState.isBusy || uiState.pendingAction != null) return
         uiState = uiState.copy(
-            isBusy = true,
-            pendingAction = null,
-            statusMessage = "Refreshing status…",
+            isBusy = blockUntilConnected,
+            statusMessage = if (uiState.isConnected) "Updating status…" else "Restoring Comfort Cloud session…",
             errorMessage = null,
         )
-        viewModelScope.launch {
-            runCatching { client.refreshSnapshot() }
-                .onSuccess { snapshot -> showSnapshot(snapshot, "Status confirmed") }
-                .onFailure(::showRefreshError)
+        refreshJob = viewModelScope.launch {
+            try {
+                val snapshot = client.refreshSnapshot()
+                showNetworkSnapshot(snapshot, "Status confirmed")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                showRefreshError(error)
+            } finally {
+                refreshJob = null
+            }
         }
     }
 
     fun send(action: HeatPumpAction) {
         val current = uiState
-        if (!current.isConnected || current.isBusy) return
+        if (!current.isConnected || current.isBusy || current.pendingAction != null) return
+        refreshJob?.cancel()
+        refreshJob = null
         uiState = current.copy(
             isBusy = true,
             pendingAction = action,
@@ -100,9 +131,10 @@ class HeatPumpViewModel(
             runCatching {
                 client.sendControl(controlParameters(current, action))
             }.onSuccess { snapshot ->
-                showSnapshot(snapshot, "Command confirmed")
+                showNetworkSnapshot(snapshot, "Command confirmed")
             }.onFailure { error ->
                 uiState = uiState.copy(
+                    syncStatus = SyncStatus.OFFLINE,
                     isBusy = false,
                     pendingAction = null,
                     statusMessage = "Command not confirmed",
@@ -114,6 +146,8 @@ class HeatPumpViewModel(
 
     fun disconnect() {
         if (uiState.isBusy) return
+        refreshJob?.cancel()
+        refreshJob = null
         uiState = uiState.copy(isBusy = true, statusMessage = "Disconnecting…")
         viewModelScope.launch {
             client.disconnect()
@@ -121,38 +155,11 @@ class HeatPumpViewModel(
         }
     }
 
-    private fun showSnapshot(snapshot: ComfortCloudSnapshot, message: String) {
-        val normalTargetTemperature = if (snapshot.targetTemperature >= 16.0) {
-            snapshot.targetTemperature
-        } else {
-            uiState.normalTargetTemperature
-        }
-        uiState = HeatPumpUiState(
-            connectionStatus = ConnectionStatus.CONNECTED,
-            deviceName = snapshot.device.name,
-            model = snapshot.device.model,
-            isPoweredOn = snapshot.isPoweredOn,
-            mode = snapshot.mode,
-            fanSpeed = snapshot.fanSpeed,
-            verticalAirflowMode = snapshot.verticalAirflowMode,
-            verticalAirflowPosition = snapshot.verticalAirflowPosition,
-            horizontalAirflowMode = snapshot.horizontalAirflowMode,
-            horizontalAirflowPosition = snapshot.horizontalAirflowPosition,
-            roomTemperature = snapshot.roomTemperature,
-            outsideTemperature = snapshot.outsideTemperature,
-            targetTemperature = snapshot.targetTemperature,
-            normalTargetTemperature = normalTargetTemperature,
-            isQuietOperation = snapshot.isQuietOperation,
-            isPowerfulOperation = snapshot.isPowerfulOperation,
-            isNanoeXOn = snapshot.isNanoeXOn,
-            isNanoeStandalone = snapshot.isNanoeStandalone,
-            isInsideCleaningOn = snapshot.isInsideCleaningOn,
-            isFireplaceOn = snapshot.isFireplaceOn,
-            isMaintenanceHeating = snapshot.isMaintenanceHeating,
-            isBusy = false,
-            statusMessage = message,
-            errorMessage = null,
-            lastUpdatedEpochMillis = snapshot.timestampEpochMillis ?: System.currentTimeMillis(),
+    private fun showNetworkSnapshot(snapshot: ComfortCloudSnapshot, message: String) {
+        lastSuccessfulNetworkSyncAt = System.currentTimeMillis()
+        uiState = snapshot.toUiState(
+            previousNormalTargetTemperature = uiState.normalTargetTemperature,
+            message = message,
         )
     }
 
@@ -172,9 +179,10 @@ class HeatPumpViewModel(
             return
         }
         uiState = uiState.copy(
+            syncStatus = SyncStatus.OFFLINE,
             isBusy = false,
             pendingAction = null,
-            statusMessage = "Could not refresh — showing last confirmed status",
+            statusMessage = "Offline — showing last confirmed status",
             errorMessage = error.userMessage(),
         )
     }
@@ -193,4 +201,50 @@ class HeatPumpViewModel(
                 }
             }
     }
+}
+
+internal fun shouldRefreshAfter(
+    lastSuccessfulNetworkSyncAt: Long,
+    nowEpochMillis: Long,
+): Boolean = lastSuccessfulNetworkSyncAt == 0L ||
+    nowEpochMillis - lastSuccessfulNetworkSyncAt >= 30_000L
+
+private fun ComfortCloudSnapshot.toUiState(
+    previousNormalTargetTemperature: Double,
+    message: String,
+    syncStatus: SyncStatus = SyncStatus.ONLINE,
+): HeatPumpUiState {
+    val normalTargetTemperature = if (targetTemperature >= 16.0) {
+        targetTemperature
+    } else {
+        previousNormalTargetTemperature
+    }
+    return HeatPumpUiState(
+        connectionStatus = ConnectionStatus.CONNECTED,
+        syncStatus = syncStatus,
+        deviceName = device.name,
+        model = device.model,
+        isPoweredOn = isPoweredOn,
+        mode = mode,
+        fanSpeed = fanSpeed,
+        verticalAirflowMode = verticalAirflowMode,
+        verticalAirflowPosition = verticalAirflowPosition,
+        horizontalAirflowMode = horizontalAirflowMode,
+        horizontalAirflowPosition = horizontalAirflowPosition,
+        roomTemperature = roomTemperature,
+        outsideTemperature = outsideTemperature,
+        targetTemperature = targetTemperature,
+        normalTargetTemperature = normalTargetTemperature,
+        isQuietOperation = isQuietOperation,
+        isPowerfulOperation = isPowerfulOperation,
+        isNanoeXOn = isNanoeXOn,
+        isNanoeStandalone = isNanoeStandalone,
+        isInsideCleaningOn = isInsideCleaningOn,
+        isFireplaceOn = isFireplaceOn,
+        isMaintenanceHeating = isMaintenanceHeating,
+        isBusy = false,
+        statusMessage = message,
+        errorMessage = null,
+        lastUpdatedEpochMillis = timestampEpochMillis ?: System.currentTimeMillis(),
+    )
 }

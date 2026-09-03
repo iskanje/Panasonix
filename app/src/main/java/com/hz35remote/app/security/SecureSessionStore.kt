@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.hz35remote.app.data.ComfortCloudDevice
 import com.hz35remote.app.data.ComfortCloudSession
 import com.hz35remote.app.data.PendingAuthorization
 import org.json.JSONObject
@@ -39,6 +40,43 @@ class SecureSessionStore(context: Context) {
                 appVersion = json.getString("appVersion"),
             )
         }.getOrNull()
+    }
+
+    fun saveSelectedDevice(device: ComfortCloudDevice) {
+        val json = JSONObject()
+            .put("guid", device.guid)
+            .put("name", device.name)
+            .put("model", device.model)
+        putEncrypted(SELECTED_DEVICE_KEY, json.toString())
+    }
+
+    fun loadSelectedDevice(): ComfortCloudDevice? = getEncrypted(SELECTED_DEVICE_KEY)?.let { encoded ->
+        runCatching {
+            val json = JSONObject(encoded)
+            ComfortCloudDevice(
+                guid = json.getString("guid"),
+                name = json.getString("name"),
+                model = json.getString("model"),
+            )
+        }.getOrNull()
+    }
+
+    fun saveCachedStatus(responseBody: String, confirmedAtEpochMillis: Long) {
+        putEncrypted(CACHED_STATUS_KEY, responseBody)
+        putEncrypted(CACHED_STATUS_CONFIRMED_AT_KEY, confirmedAtEpochMillis.toString())
+    }
+
+    fun loadCachedStatus(): String? = getEncrypted(CACHED_STATUS_KEY)
+
+    fun loadCachedStatusConfirmedAt(): Long? =
+        getEncrypted(CACHED_STATUS_CONFIRMED_AT_KEY)?.toLongOrNull()
+
+    fun clearCachedDeviceState() {
+        preferences.edit()
+            .remove(SELECTED_DEVICE_KEY)
+            .remove(CACHED_STATUS_KEY)
+            .remove(CACHED_STATUS_CONFIRMED_AT_KEY)
+            .apply()
     }
 
     fun savePendingAuthorization(pending: PendingAuthorization) {
@@ -109,9 +147,11 @@ class SecureSessionStore(context: Context) {
         const val PREFERENCES_NAME = "secure_comfort_cloud_session"
         const val SESSION_KEY = "session"
         const val PENDING_AUTHORIZATION_KEY = "pending_authorization"
+        const val SELECTED_DEVICE_KEY = "selected_device"
+        const val CACHED_STATUS_KEY = "cached_status"
+        const val CACHED_STATUS_CONFIRMED_AT_KEY = "cached_status_confirmed_at"
         const val ANDROID_KEY_STORE = "AndroidKeyStore"
         const val KEY_ALIAS = "comfort_cloud_session_key"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
     }
 }
-

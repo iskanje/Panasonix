@@ -95,6 +95,11 @@ class MainActivity : ComponentActivity() {
         handleAuthorizationIntent(intent)
     }
 
+    override fun onStart() {
+        super.onStart()
+        heatPumpViewModel.refreshIfStale()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -750,11 +755,7 @@ private fun StatusCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                        text = if (state.errorMessage != null) {
-                            "Connection issue"
-                        } else {
-                            "● Online"
-                        },
+                    text = syncStatusLabel(state.syncStatus),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
