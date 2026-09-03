@@ -53,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
@@ -754,11 +755,25 @@ private fun StatusCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = syncStatusLabel(state.syncStatus),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "●",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = when (state.syncStatus) {
+                            SyncStatus.ONLINE -> OnlineIndicatorGreen
+                            SyncStatus.OFFLINE -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                        },
+                    )
+                    Text(
+                        text = syncStatusLabel(state.syncStatus),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -836,6 +851,8 @@ private fun StatusCard(
         }
     }
 }
+
+private val OnlineIndicatorGreen = Color(0xFF006D3C)
 
 @Composable
 private fun ControlSection(

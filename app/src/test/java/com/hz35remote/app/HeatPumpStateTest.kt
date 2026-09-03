@@ -202,7 +202,7 @@ class HeatPumpStateTest {
     @Test
     fun `sync indicator distinguishes cached checking online and offline states`() {
         assertEquals("Checking connection", syncStatusLabel(SyncStatus.CHECKING))
-        assertEquals("● Online", syncStatusLabel(SyncStatus.ONLINE))
-        assertEquals("● Offline", syncStatusLabel(SyncStatus.OFFLINE))
+        assertEquals("Online", syncStatusLabel(SyncStatus.ONLINE))
+        assertEquals("Offline", syncStatusLabel(SyncStatus.OFFLINE))
     }
 }

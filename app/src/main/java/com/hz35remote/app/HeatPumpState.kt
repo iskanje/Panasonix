@@ -100,8 +100,8 @@ enum class SyncStatus {
 internal fun syncStatusLabel(status: SyncStatus): String = when (status) {
     SyncStatus.UNKNOWN -> "Connection unknown"
     SyncStatus.CHECKING -> "Checking connection"
-    SyncStatus.ONLINE -> "● Online"
-    SyncStatus.OFFLINE -> "● Offline"
+    SyncStatus.ONLINE -> "Online"
+    SyncStatus.OFFLINE -> "Offline"
 }
 
 data class HeatPumpUiState(
