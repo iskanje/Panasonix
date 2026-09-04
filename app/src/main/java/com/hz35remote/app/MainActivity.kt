@@ -543,8 +543,8 @@ private fun HeatPumpControls(
                             HorizontalDivider()
                             AirflowAxisControl(
                                 title = "Horizontal airflow",
-                                startLabel = "Right",
-                                endLabel = "Left",
+                                startLabel = "Left",
+                                endLabel = "Right",
                                 mode = displayedHorizontalAirflowMode,
                                 position = displayedHorizontalAirflowPosition,
                                 pendingMode = pendingAirflowMode
