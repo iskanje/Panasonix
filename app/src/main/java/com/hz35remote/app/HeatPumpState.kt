@@ -68,8 +68,8 @@ fun airflowPositionFromApi(
     value: Int,
 ): AirflowPosition {
     val apiValues = when (axis) {
-        AirflowAxis.VERTICAL -> listOf(0, 3, 2, 4, 1)
-        AirflowAxis.HORIZONTAL -> listOf(0, 4, 2, 3, 1)
+        AirflowAxis.VERTICAL -> listOf(1, 4, 2, 3, 0)
+        AirflowAxis.HORIZONTAL -> listOf(1, 3, 2, 4, 0)
     }
     return AirflowPosition.fromLevel(apiValues.indexOf(value) + 1)
 }
@@ -78,8 +78,8 @@ fun airflowPositionApiValue(
     axis: AirflowAxis,
     position: AirflowPosition,
 ): Int = when (axis) {
-    AirflowAxis.VERTICAL -> listOf(0, 3, 2, 4, 1)
-    AirflowAxis.HORIZONTAL -> listOf(0, 4, 2, 3, 1)
+    AirflowAxis.VERTICAL -> listOf(1, 4, 2, 3, 0)
+    AirflowAxis.HORIZONTAL -> listOf(1, 3, 2, 4, 0)
 }[position.level - 1]
 
 enum class ConnectionStatus {

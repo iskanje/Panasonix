@@ -29,7 +29,7 @@ class HeatPumpStateTest {
         )
 
         assertEquals(
-            mapOf("fanAutoMode" to 1, "airSwingUD" to 3),
+            mapOf("fanAutoMode" to 1, "airSwingUD" to 4),
             controlParameters(
                 state,
                 HeatPumpAction.SelectAirflowPosition(
@@ -39,7 +39,7 @@ class HeatPumpStateTest {
             ),
         )
         assertEquals(
-            mapOf("fanAutoMode" to 1, "airSwingLR" to 3),
+            mapOf("fanAutoMode" to 1, "airSwingLR" to 4),
             controlParameters(
                 state,
                 HeatPumpAction.SelectAirflowPosition(
@@ -49,9 +49,13 @@ class HeatPumpStateTest {
             ),
         )
         assertEquals(
-            AirflowPosition.FOUR,
+            AirflowPosition.TWO,
             airflowPositionFromApi(AirflowAxis.VERTICAL, 4),
         )
+        assertEquals(1, airflowPositionApiValue(AirflowAxis.VERTICAL, AirflowPosition.ONE))
+        assertEquals(0, airflowPositionApiValue(AirflowAxis.VERTICAL, AirflowPosition.FIVE))
+        assertEquals(1, airflowPositionApiValue(AirflowAxis.HORIZONTAL, AirflowPosition.ONE))
+        assertEquals(0, airflowPositionApiValue(AirflowAxis.HORIZONTAL, AirflowPosition.FIVE))
     }
 
     @Test

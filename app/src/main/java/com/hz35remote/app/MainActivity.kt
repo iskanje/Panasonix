@@ -512,8 +512,8 @@ private fun HeatPumpControls(
                         ) {
                             AirflowAxisControl(
                                 title = "Vertical airflow",
-                                startLabel = "Up",
-                                endLabel = "Down",
+                                startLabel = "Down",
+                                endLabel = "Up",
                                 mode = displayedVerticalAirflowMode,
                                 position = displayedVerticalAirflowPosition,
                                 pendingMode = pendingAirflowMode
@@ -543,8 +543,8 @@ private fun HeatPumpControls(
                             HorizontalDivider()
                             AirflowAxisControl(
                                 title = "Horizontal airflow",
-                                startLabel = "Left",
-                                endLabel = "Right",
+                                startLabel = "Right",
+                                endLabel = "Left",
                                 mode = displayedHorizontalAirflowMode,
                                 position = displayedHorizontalAirflowPosition,
                                 pendingMode = pendingAirflowMode
