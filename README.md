@@ -17,6 +17,7 @@ The interface uses only standard Jetpack Compose Material 3 components and the d
 - Fan speed selection: Auto and levels 1–5
 - Vertical and horizontal airflow: Auto, Swing, and five fixed positions
 - Temperature control from 16–30 °C
+- Rapid temperature taps update immediately and are combined into one command
 - Power control
 - Pending and confirmed command states
 - Explicit connection and API errors
@@ -36,7 +37,7 @@ The heat pump must already be registered using the official Panasonic Comfort Cl
 
 ## Important limitation
 
-Panasonic does not publish or support this consumer control API. The integration follows the current Comfort Cloud app protocol and can break when Panasonic changes it. Version `0.4.7` is compiled and unit-tested, but live authentication and commands still require end-to-end testing with a real Comfort Cloud account and CS-HZ35ZKE.
+Panasonic does not publish or support this consumer control API. The integration follows the current Comfort Cloud app protocol and can break when Panasonic changes it. Version `0.4.8` is compiled and unit-tested, but live authentication and commands still require end-to-end testing with a real Comfort Cloud account and CS-HZ35ZKE.
 
 If Comfort Cloud returns agreement error `4103`, review the changed terms or privacy notice in Panasonic's official app. Panasonix will not accept agreements automatically.
 

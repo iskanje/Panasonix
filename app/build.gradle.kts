@@ -12,8 +12,8 @@ android {
         applicationId = "com.hz35remote.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.4.7"
+        versionCode = 13
+        versionName = "0.4.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -57,4 +57,6 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.mockito:mockito-core:5.14.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }

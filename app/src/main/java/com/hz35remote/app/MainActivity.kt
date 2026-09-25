@@ -294,8 +294,7 @@ private fun HeatPumpControls(
     } else {
         state.horizontalAirflowPosition
     }
-    val temperatureIsPending = state.pendingAction == HeatPumpAction.IncreaseTemperature ||
-        state.pendingAction == HeatPumpAction.DecreaseTemperature
+    val temperatureIsPending = state.pendingTargetTemperature != null
     val hasAnimatedPendingAction = pendingMode != null ||
         pendingFanSpeed != null ||
         pendingAirflowMode != null ||
@@ -314,19 +313,9 @@ private fun HeatPumpControls(
     } else {
         1f
     }
-    val displayedTemperature = when (state.pendingAction) {
-        HeatPumpAction.IncreaseTemperature ->
-            (state.targetTemperature + 1.0).coerceIn(
-                state.minimumTargetTemperature,
-                state.maximumTargetTemperature,
-            )
-        HeatPumpAction.DecreaseTemperature ->
-            (state.targetTemperature - 1.0).coerceIn(
-                state.minimumTargetTemperature,
-                state.maximumTargetTemperature,
-            )
-        else -> state.targetTemperature
-    }
+    val displayedTemperature = state.pendingTargetTemperature ?: state.targetTemperature
+    val canAdjustTemperature = state.isConnected && state.isPoweredOn &&
+        (!state.isBusy || temperatureIsPending)
     val displayedQuietOperation = when (state.pendingAction) {
         HeatPumpAction.ToggleQuietOperation -> !state.isQuietOperation
         HeatPumpAction.TogglePowerfulOperation -> false
@@ -431,8 +420,8 @@ private fun HeatPumpControls(
                     ) {
                         Button(
                             onClick = { onAction(HeatPumpAction.DecreaseTemperature) },
-                            enabled = state.isPoweredOn &&
-                                state.targetTemperature > state.minimumTargetTemperature,
+                            enabled = canAdjustTemperature &&
+                                displayedTemperature > state.minimumTargetTemperature,
                         ) {
                             Text("−")
                         }
@@ -445,8 +434,8 @@ private fun HeatPumpControls(
                         )
                         Button(
                             onClick = { onAction(HeatPumpAction.IncreaseTemperature) },
-                            enabled = state.isPoweredOn &&
-                                state.targetTemperature < state.maximumTargetTemperature,
+                            enabled = canAdjustTemperature &&
+                                displayedTemperature < state.maximumTargetTemperature,
                         ) {
                             Text("+")
                         }

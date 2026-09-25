@@ -129,6 +129,7 @@ data class HeatPumpUiState(
     val isMaintenanceHeating: Boolean = false,
     val isBusy: Boolean = false,
     val pendingAction: HeatPumpAction? = null,
+    val pendingTargetTemperature: Double? = null,
     val statusMessage: String = "Not connected",
     val errorMessage: String? = null,
     val lastUpdatedEpochMillis: Long? = null,

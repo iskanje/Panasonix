@@ -12,6 +12,7 @@ import com.hz35remote.app.data.ComfortCloudSnapshot
 import com.hz35remote.app.security.SecureSessionStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class HeatPumpViewModel(
@@ -118,25 +119,66 @@ class HeatPumpViewModel(
 
     fun send(action: HeatPumpAction) {
         val current = uiState
-        if (!current.isConnected || current.isBusy || current.pendingAction != null) return
+        val isTemperatureAction = action == HeatPumpAction.IncreaseTemperature ||
+            action == HeatPumpAction.DecreaseTemperature
+        val isAdjustingTemperature = isTemperatureAction && current.pendingTargetTemperature != null
+        if (!current.isConnected ||
+            ((current.isBusy || current.pendingAction != null) && !isAdjustingTemperature)
+        ) return
+        val parameters = controlParameters(
+            current.copy(targetTemperature = current.pendingTargetTemperature ?: current.targetTemperature),
+            action,
+        )
+        val pendingTemperature = if (isTemperatureAction) parameters["temperatureSet"]?.toDouble() else null
+        if (isTemperatureAction &&
+            pendingTemperature == (current.pendingTargetTemperature ?: current.targetTemperature)
+        ) return
+        if (isAdjustingTemperature) {
+            uiState = current.copy(pendingAction = action, pendingTargetTemperature = pendingTemperature)
+            return
+        }
         refreshJob?.cancel()
         refreshJob = null
         uiState = current.copy(
             isBusy = true,
             pendingAction = action,
+            pendingTargetTemperature = pendingTemperature,
             statusMessage = actionDescription(action),
             errorMessage = null,
         )
         viewModelScope.launch {
-            runCatching {
-                client.sendControl(controlParameters(current, action))
-            }.onSuccess { snapshot ->
-                showNetworkSnapshot(snapshot, "Command confirmed")
-            }.onFailure { error ->
+            try {
+                var nextParameters = if (isTemperatureAction) {
+                    delay(TEMPERATURE_ADJUSTMENT_DELAY_MILLIS)
+                    mapOf("temperatureSet" to (uiState.pendingTargetTemperature ?: pendingTemperature!!))
+                } else {
+                    parameters
+                }
+                while (true) {
+                    val snapshot = client.sendControl(nextParameters)
+                    val latestTemperature = uiState.pendingTargetTemperature
+                    val latestAction = uiState.pendingAction
+                    showNetworkSnapshot(snapshot, "Command confirmed")
+                    if (latestTemperature == null ||
+                        latestTemperature == nextParameters["temperatureSet"]?.toDouble()
+                    ) break
+                    // Keep the latest selection visible while the next command is sent.
+                    uiState = uiState.copy(
+                        isBusy = true,
+                        pendingAction = latestAction,
+                        pendingTargetTemperature = latestTemperature,
+                        statusMessage = "Changing temperature…",
+                    )
+                    nextParameters = mapOf("temperatureSet" to latestTemperature)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
                 uiState = uiState.copy(
                     syncStatus = SyncStatus.OFFLINE,
                     isBusy = false,
                     pendingAction = null,
+                    pendingTargetTemperature = null,
                     statusMessage = "Command not confirmed",
                     errorMessage = error.userMessage(),
                 )
@@ -193,6 +235,8 @@ class HeatPumpViewModel(
     }
 
     companion object {
+        private const val TEMPERATURE_ADJUSTMENT_DELAY_MILLIS = 300L
+
         fun factory(store: SecureSessionStore): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
